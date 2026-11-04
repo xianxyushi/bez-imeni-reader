@@ -19,3 +19,5 @@ html{scrollbar-gutter:stable}body:has(dialog[open]){overflow:hidden}#prose p[id]
 @media(max-width:600px){html{scrollbar-gutter:auto}.dialogHead{touch-action:none}.dialogHead::before{content:'';position:absolute;top:6px;left:calc(50% - 18px);width:36px;height:4px;border-radius:4px;background:var(--line)}header{padding:0 12px}header a{font-size:20px}#tools>button,#accountMenu>summary{width:40px;min-width:40px;padding:9px}#prose p[id]{scroll-margin-top:76px}}
 @media(max-width:600px){.hasAppendix #reader{padding-right:22px}.hasAppendix #reader .paging{flex-direction:row}.appendixWidget{opacity:.58}.appendixWidget:hover,.appendixWidget:focus-visible{opacity:1}}
 #appendixWidgets{top:auto;bottom:calc(24px + env(safe-area-inset-bottom))}
+
+#prose p{text-align:justify;text-align-last:start;hyphens:auto;-webkit-hyphens:auto}
