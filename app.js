@@ -5,6 +5,13 @@ const sessionKey='bez-imeni-session';
 let session=JSON.parse(sessionStorage.getItem(sessionKey)||'null'),book,episodes=[],current=0,profile,reviewRecord,target,allReviews=[],refreshing;
 function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
 function appendixLabel(app){return 'Приложение '+(book.appendices.indexOf(app)+1);}
+const iconPaths={list:'M4 6h16M4 12h16M4 18h10',type:'M4 5h16M12 5v15M8 20h8',message:'M20 15a3 3 0 0 1-3 3H8l-5 3V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z',people:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 4a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0',exit:'M9 3H4v18h5M14 8l5 4-5 4M8 12h11',book:'M12 5v16M3 3h5a4 4 0 0 1 4 2 4 4 0 0 1 4-2h5v16h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3z',close:'M6 6l12 12M6 18L18 6'};
+function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',iconPaths[name]);svg.append(path);return svg;}
+document.querySelectorAll('[data-icon]').forEach(b=>b.prepend(icon(b.dataset.icon)));
+document.querySelectorAll('dialog .close').forEach(b=>{b.setAttribute('aria-label',b.textContent);b.title=b.textContent;b.replaceChildren(icon('close'));});
+$('accountMenu').addEventListener('click',e=>{if(e.target.closest('button'))$('accountMenu').open=false;});
+document.addEventListener('click',e=>{if(!$('accountMenu').contains(e.target))$('accountMenu').open=false;});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('accountMenu').open){$('accountMenu').open=false;$('accountMenu').querySelector('summary').focus();}});
 async function api(path,{method='GET',body,auth=true,retry=true,headers={}}={}){
  if(!config.url||!config.anonKey)throw Error('Читалка ещё не подключена. Автор готовит доступ.');
  if(auth&&session?.expires_at<Date.now()+30000)await refresh();
@@ -34,7 +41,8 @@ function rememberPosition(episode,block=''){
 function draftsKey(){return 'bez-imeni-draft:'+session.user.id+':'+book.edition+':'+target.episode+':'+target.block;}
 function showStatus(id,text){$(id).textContent=text;}
 document.querySelectorAll('dialog .close').forEach(b=>b.onclick=()=>b.closest('dialog').close());
-document.querySelectorAll('dialog').forEach(d=>{const heading=d.querySelector('h2');if(!heading.id)heading.id=d.id+'Heading';d.setAttribute('aria-labelledby',heading.id);});
+document.querySelectorAll('dialog').forEach(d=>{const heading=d.querySelector('h2');if(!heading.id)heading.id=d.id+'Heading';d.setAttribute('aria-labelledby',heading.id);const head=node('div',undefined,'dialogHead');head.append(heading,d.querySelector('.close'));d.prepend(head);});
+const authorFilters=node('div',undefined,'authorFilters');authorFilters.append($('readerFilter').closest('label'),$('export'));$('author').querySelector('.dialogHead').after(authorFilters);
 $('logout').onclick=async()=>{await api('/auth/v1/logout',{method:'POST'}).catch(()=>{});sessionStorage.removeItem(sessionKey);location.reload();};
 async function start(){
  profile=(await rpc('reader_profile'))[0];if(!profile)throw Error('Доступ закрыт. Обратись к автору книги.');
@@ -53,7 +61,8 @@ function rich(block){
 }
 function render(blockId){
  const ep=episodes[current];$('location').textContent=`Акт ${ep.act} · ${ep.actTitle} · Глава ${ep.chapter}`;$('title').textContent='Эп. '+ep.number;$('prose').replaceChildren(...ep.blocks.map(rich));
- for(const app of book.appendices.filter(a=>a.links.includes(ep.id))){const button=node('button',appendixLabel(app),'appendixLink');button.onclick=()=>openAppendix(app);$('prose').append(button);}
+ const linked=book.appendices.filter(a=>a.links.includes(ep.id));$('appendixWidgets').replaceChildren();$('appendixWidgets').hidden=!linked.length;document.body.classList.toggle('hasAppendix',!!linked.length);
+ for(const app of linked){const button=node('button',undefined,'appendixWidget');button.title=appendixLabel(app);button.setAttribute('aria-label',appendixLabel(app));button.append(icon('book'),node('span',String(book.appendices.indexOf(app)+1),'widgetNumber'));button.onclick=()=>openAppendix(app);$('appendixWidgets').append(button);}
  $('previous').disabled=current===0;$('next').disabled=current===episodes.length-1;rememberPosition(ep.id,blockId||'');
  document.querySelectorAll('#tocContent button[data-episode]').forEach(b=>{if(b.dataset.episode===ep.id)b.setAttribute('aria-current','location');else b.removeAttribute('aria-current');});
  window.scrollTo(0,0);if(blockId)$(blockId)?.scrollIntoView({block:'center'});
@@ -61,14 +70,15 @@ function render(blockId){
 $('previous').onclick=()=>{if(current>0){current--;render();}};$('next').onclick=()=>{if(current<episodes.length-1){current++;render();}};
 $('home').onclick=e=>{e.preventDefault();if(book)$('toc').showModal();};
 function buildToc(){
- $('tocContent').replaceChildren();for(const act of book.acts){const d=node('details');d.append(node('summary',act.title));for(const chapter of act.chapters){d.append(node('h3','Глава '+chapter.number));for(const ep of chapter.episodes){const btn=node('button','Эп. '+ep.number);btn.dataset.episode=ep.id;btn.onclick=()=>{current=episodes.findIndex(e=>e.id===ep.id);$('toc').close();render();};d.append(btn);}}$('tocContent').append(d);}
+ $('tocContent').replaceChildren();for(const act of book.acts){const d=node('details');d.append(node('summary',act.title));for(const chapter of act.chapters){const section=node('details',undefined,'chapter');section.append(node('summary','Глава '+chapter.number));const grid=node('div',undefined,'episodeGrid');for(const ep of chapter.episodes){const btn=node('button','Эп. '+ep.number);btn.dataset.episode=ep.id;btn.onclick=()=>{current=episodes.findIndex(e=>e.id===ep.id);$('toc').close();render();};grid.append(btn);}section.append(grid);d.append(section);}$('tocContent').append(d);}
  for(const app of book.appendices){const b=node('button',appendixLabel(app));b.onclick=()=>{$('toc').close();openAppendix(app);};$('tocContent').append(b);}
 }
 function openAppendix(app){$('appendixTitle').textContent=appendixLabel(app);$('appendixText').replaceChildren(...app.stanzas.map(s=>node('p',s.join('\n'),'stanza')));$('appendix').showModal();}
-function showToc(){const active=$('tocContent').querySelector('[aria-current]');if(active)active.closest('details').open=true;$('toc').showModal();active?.scrollIntoView({block:'center'});active?.focus({preventScroll:true});}
+function showToc(){const active=$('tocContent').querySelector('[aria-current]');for(let parent=active?.parentElement;parent&&parent!==$('tocContent');parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;$('toc').showModal();active?.scrollIntoView({block:'center'});active?.focus({preventScroll:true});}
 $('tocButton').onclick=showToc;$('home').onclick=e=>{e.preventDefault();if(book)showToc();};$('settingsButton').onclick=()=>$('settings').showModal();
 const prefs=JSON.parse(localStorage.getItem('bez-imeni-settings')||'{}');$('fontSize').value=prefs.size||21;$('theme').value=prefs.theme||'light';
-function settings(){document.documentElement.style.setProperty('--size',$('fontSize').value+'px');document.body.dataset.theme=$('theme').value;localStorage.setItem('bez-imeni-settings',JSON.stringify({size:$('fontSize').value,theme:$('theme').value}));}
+const sizeValue=node('output',undefined,'sizeValue');sizeValue.htmlFor='fontSize';$('fontSize').before(sizeValue);const themeChoices=node('div',undefined,'themeChoices');themeChoices.setAttribute('role','group');themeChoices.setAttribute('aria-label','Тема чтения');for(const [value,label] of [['light','Светлая'],['dark','Тёмная']]){const b=node('button',label);b.dataset.themeChoice=value;b.onclick=()=>{$('theme').value=value;settings();};themeChoices.append(b);}$('theme').hidden=true;$('theme').after(themeChoices);
+function settings(){document.documentElement.style.setProperty('--size',$('fontSize').value+'px');document.body.dataset.theme=$('theme').value;sizeValue.textContent=$('fontSize').value;themeChoices.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.themeChoice===$('theme').value));localStorage.setItem('bez-imeni-settings',JSON.stringify({size:$('fontSize').value,theme:$('theme').value}));}
 $('fontSize').oninput=settings;$('theme').onchange=settings;settings();
 let reaction=null,loadingReview=0,reviewLoaded=false;
 const feedbackStore=new FeedbackStore({send:payload=>rpc('reader_save_feedback',payload),storage:localStorage});
@@ -89,7 +99,7 @@ $('saveReview').onclick=async()=>{
  finally{if(key===draftsKey())$('saveReview').disabled=!reviewLoaded;}
 };
 $('authorButton').onclick=async()=>{if(!profile.author)return;$('author').showModal();$('allReviews').textContent='Загружаем…';try{allReviews=await rpc('reader_all_feedback');const users=new Map(allReviews.map(r=>[r.user_id,r.name]));$('readerFilter').replaceChildren(new Option('Все',''),...[...users].map(([id,name])=>new Option(name,id)));renderAll();}catch(e){$('allReviews').textContent=e.message;}};
-function renderAll(){const selected=$('readerFilter').value;const rows=allReviews.filter(r=>!selected||r.user_id===selected);$('allReviews').replaceChildren(...rows.map(r=>{const box=node('section',undefined,'reviewCard'),label=node('div',undefined,'identity'),dot=node('i');if(/^#[0-9a-f]{6}$/i.test(r.color))dot.style.background=r.color;label.append(dot,node('strong',r.name));box.append(label,node('p','Эп. '+r.episode+' · '+({heart:'♡',broken:'💔',remark:'Замечание'}[r.reaction]||'')),node('blockquote',r.quote),node('p',r.comment));return box;}));if(!rows.length)$('allReviews').textContent='Отзывов пока нет.';}
+function renderAll(){const selected=$('readerFilter').value;const rows=allReviews.filter(r=>!selected||r.user_id===selected);$('allReviews').replaceChildren(...rows.map(r=>{const box=node('section',undefined,'reviewCard'),label=node('div',undefined,'identity'),dot=node('i');if(/^#[0-9a-f]{6}$/i.test(r.color))dot.style.background=r.color;label.append(dot,node('strong',r.name));const ep=episodes.find(e=>e.id===r.episode);box.append(label,node('p',(ep?`Акт ${ep.act} · Глава ${ep.chapter} · Эп. ${ep.number}`:r.episode)+' · '+({heart:'Нравится',broken:'Не нравится',remark:'Замечание'}[r.reaction]||'Комментарий'),'reviewAddress'));if(r.quote){const q=node('details',undefined,'reviewQuote');q.append(node('summary','Показать фрагмент'),node('blockquote',r.quote));box.append(q);}if(r.comment)box.append(node('p',r.comment));if(ep){const jump=node('button','К фрагменту');jump.onclick=()=>{$('author').close();current=episodes.indexOf(ep);render(r.block);};box.append(jump);}return box;}));if(!rows.length)$('allReviews').textContent='Отзывов пока нет.';}
 $('readerFilter').onchange=renderAll;
 $('export').onclick=()=>{if(!profile.author)return;const rows=[['Читатель','Эпизод','Фрагмент','Цитата','Реакция','Комментарий','Дата'],...allReviews.map(r=>[r.name,r.episode,r.block,r.quote,r.reaction,r.comment,r.updated_at])];const url=URL.createObjectURL(new Blob(['\uFEFF'+rows.map(r=>r.map(csvCell).join(';')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=node('a');a.href=url;a.download='Отзывы — Без имени.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 let scrollTimer;window.addEventListener('scroll',()=>{clearTimeout(scrollTimer);scrollTimer=setTimeout(()=>{if(!book)return;const block=[...$('prose').querySelectorAll('p[id]')].find(p=>p.getBoundingClientRect().bottom>100);if(block)rememberPosition(episodes[current].id,block.id);},500);},{passive:true});
