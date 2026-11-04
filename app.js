@@ -149,15 +149,17 @@ $('addBookmark').onclick=async()=>{$('addBookmark').disabled=true;try{await save
 $('fragmentBookmark').onclick=async()=>{if(!target)return;$('fragmentBookmark').disabled=true;try{await saveBookmark({episode:target.episode,block:target.block,quote:target.quote});showStatus('saveStatus','Закладка сохранена.');}catch{showStatus('saveStatus','Закладка не сохранена. Попробуй ещё раз.');}finally{$('fragmentBookmark').disabled=false;}};
 $('resumeReading').onclick=()=>{const saved=JSON.parse(localStorage.getItem(positionKey())||'null');$('bookmarks').close();if(saved){const index=episodes.findIndex(e=>e.id===saved.episode);if(index>=0){current=index;render(saved.block);}}};
 // Ключ убирается из адреса до запроса и не сохраняется в хранилище браузера.
-async function acceptInvitation(){
- const hash=new URLSearchParams(location.hash.slice(1));if(!hash.has('key'))return false;
- const key=hash.get('key');history.replaceState(null,'',location.pathname+location.search);
+async function acceptInvitation(providedKey){
+ const hash=new URLSearchParams(location.hash.slice(1));if(!providedKey&&!hash.has('key'))return false;
+ const key=providedKey||hash.get('key');history.replaceState(null,'',location.pathname+location.search);
  document.querySelectorAll('dialog[open]').forEach(d=>d.close());
  $('reader').hidden=true;$('tools').hidden=true;$('login').hidden=false;book=null;
  clearSession();showStatus('loginStatus','Открываем книгу…');
  setSession(await api('/functions/v1/reader-access',{method:'POST',auth:false,body:{action:'enter',key}}));
  await start();return true;
 }
+$('showLinkLogin').onclick=()=>{const expanded=$('linkLoginForm').hidden;$('linkLoginForm').hidden=!expanded;$('showLinkLogin').setAttribute('aria-expanded',String(expanded));if(expanded)$('personalLink').focus();};
+$('linkLoginForm').onsubmit=async event=>{event.preventDefault();let key;try{const link=new URL($('personalLink').value.trim());key=new URLSearchParams(link.hash.slice(1)).get('key');if(link.origin!=='https://xianxyushi.github.io'||link.pathname!=='/bez-imeni-reader/'||!/^[a-f0-9]{64}$/.test(key||''))throw Error();}catch{showStatus('loginStatus','Вставьте личную ссылку на эту читалку целиком, включая часть после #.');return;}$('submitLinkLogin').disabled=true;$('personalLink').value='';try{await acceptInvitation(key);}catch(e){showStatus('loginStatus',e.message);}finally{$('submitLinkLogin').disabled=false;}};
 function clearInvite(){ $('inviteLink').value='';$('inviteResult').hidden=true; }
 function showInvite(result){$('inviteLink').value=result.link;$('inviteResult').hidden=false;showStatus('inviteStatus',result.message);}
 $('invites').addEventListener('close',clearInvite);
