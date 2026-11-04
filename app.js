@@ -7,6 +7,10 @@ function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefi
 function appendixLabel(app){return 'Приложение '+(book.appendices.indexOf(app)+1);}
 const iconPaths={list:'M4 6h16M4 12h16M4 18h10',type:'M4 5h16M12 5v15M8 20h8',message:'M20 15a3 3 0 0 1-3 3H8l-5 3V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z',people:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 4a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0',exit:'M9 3H4v18h5M14 8l5 4-5 4M8 12h11',book:'M12 5v16M3 3h5a4 4 0 0 1 4 2 4 4 0 0 1 4-2h5v16h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3z',close:'M6 6l12 12M6 18L18 6'};
 function icon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');const path=document.createElementNS(svg.namespaceURI,'path');path.setAttribute('d',iconPaths[name]);svg.append(path);return svg;}
+iconPaths.sad='M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M8 9h.01M16 9h.01M8 16q4-5 8 0';
+iconPaths.happy='M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M8 9h.01M16 9h.01M8 14q4 5 8 0';
+iconPaths.question='M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M9.5 9a2.5 2.5 0 1 1 4 2c-1 .7-1.5 1-1.5 2M12 16h.01';
+for(const [reaction,name,label] of [['broken','sad','Не нравится'],['remark','question','Замечание'],['heart','happy','Нравится']]){const b=document.querySelector(`[data-reaction="${reaction}"]`);b.replaceChildren(icon(name));b.setAttribute('aria-label',label);b.title=label;$('reactions').append(b);}
 const bookmarkButton=node('button',undefined);bookmarkButton.id='bookmarksButton';bookmarkButton.title='Мои закладки';bookmarkButton.setAttribute('aria-label','Мои закладки');bookmarkButton.dataset.icon='book';$('accountMenu').before(bookmarkButton);
 const fragmentBookmark=node('button','В закладки');fragmentBookmark.id='fragmentBookmark';$('quote').after(fragmentBookmark);
 document.querySelectorAll('[data-icon]').forEach(b=>b.prepend(icon(b.dataset.icon)));
@@ -42,15 +46,22 @@ function rememberPosition(episode,block=''){
 }
 function draftsKey(){return 'bez-imeni-draft:'+session.user.id+':'+book.edition+':'+target.episode+':'+target.block;}
 function showStatus(id,text){$(id).textContent=text;}
-document.querySelectorAll('dialog .close').forEach(b=>b.onclick=()=>b.closest('dialog').close());
+document.addEventListener('pointerdown',()=>document.documentElement.dataset.input='pointer',true);
+document.addEventListener('keydown',e=>{if(['Tab','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key))document.documentElement.dataset.input='keyboard';},true);
+function dismissDialog(d){if(!d.open||d.dataset.closing)return;const mobile=matchMedia('(max-width:600px)').matches,reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;if(!mobile||reduced){d.close();return;}d.dataset.closing='true';d.style.transition='transform 200ms cubic-bezier(.4,0,1,1), opacity 200ms ease';requestAnimationFrame(()=>{d.style.transform=`translate3d(0,${d.offsetHeight+32}px,0)`;d.style.opacity='0';});setTimeout(()=>{if(d.open)d.close();},210);}
+document.querySelectorAll('dialog .close').forEach(b=>b.onclick=()=>dismissDialog(b.closest('dialog')));
 document.querySelectorAll('dialog').forEach(d=>{const heading=d.querySelector('h2');if(!heading.id)heading.id=d.id+'Heading';d.setAttribute('aria-labelledby',heading.id);const head=node('div',undefined,'dialogHead');head.append(heading,d.querySelector('.close'));d.prepend(head);});
 document.querySelectorAll('dialog').forEach(d=>{
  let outside=false,startPoint;
  const isOutside=e=>{const r=d.getBoundingClientRect();return e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom;};
- d.addEventListener('pointerdown',e=>{outside=e.target===d&&isOutside(e);});
- d.addEventListener('pointerup',e=>{if(outside&&e.target===d&&isOutside(e))d.close();outside=false;});
+ d.addEventListener('pointerdown',e=>{outside=isOutside(e);});
+ d.addEventListener('pointerup',e=>{if(outside&&isOutside(e))dismissDialog(d);outside=false;});
+ d.addEventListener('click',e=>{if(e.detail>0&&isOutside(e))dismissDialog(d);});
+ d.addEventListener('close',()=>{delete d.dataset.closing;d.style.transition='';d.style.transform='';d.style.opacity='';startPoint=null;if(document.documentElement.dataset.input==='pointer'&&document.activeElement?.matches('#prose p'))document.activeElement.blur();});
  const head=d.querySelector('.dialogHead');head.addEventListener('pointerdown',e=>{if(!matchMedia('(max-width:600px)').matches||e.target.closest('button'))return;startPoint={x:e.clientX,y:e.clientY,id:e.pointerId};head.setPointerCapture(e.pointerId);});
- head.addEventListener('pointerup',e=>{if(startPoint?.id===e.pointerId&&e.clientY-startPoint.y>70&&Math.abs(e.clientX-startPoint.x)<60)d.close();startPoint=null;});head.addEventListener('pointercancel',()=>startPoint=null);
+ const resetDrag=()=>{d.style.transition=matchMedia('(prefers-reduced-motion:reduce)').matches?'none':'transform 180ms ease-out';d.style.transform='translate3d(0,0,0)';startPoint=null;};
+ head.addEventListener('pointermove',e=>{if(startPoint?.id!==e.pointerId||d.dataset.closing)return;const y=e.clientY-startPoint.y,x=e.clientX-startPoint.x;if(Math.abs(x)>Math.max(30,Math.abs(y))){resetDrag();return;}d.style.transition='none';d.style.transform=`translate3d(0,${Math.max(0,y)}px,0)`;});
+ head.addEventListener('pointerup',e=>{if(startPoint?.id===e.pointerId&&e.clientY-startPoint.y>70&&Math.abs(e.clientX-startPoint.x)<60){startPoint=null;dismissDialog(d);}else resetDrag();});head.addEventListener('pointercancel',resetDrag);
 });
 const authorFilters=node('div',undefined,'authorFilters'),filterPanel=node('details',undefined,'filterPanel'),filterSummary=node('summary','Фильтры'),filterFields=node('div',undefined,'filterFields');filterSummary.id='filterSummary';filterFields.append($('readerFilter').closest('label'));for(const [id,title] of [['actFilter','Акт'],['chapterFilter','Глава'],['episodeFilter','Эпизод']]){const label=node('label',title),select=node('select');select.id=id;select.append(new Option('Все',''));label.append(select);filterFields.append(label);}const resetFilters=node('button','Сбросить');resetFilters.id='resetFilters';filterFields.append(resetFilters);filterPanel.append(filterSummary,filterFields);authorFilters.append(filterPanel,$('export'));$('author').querySelector('.dialogHead').after(authorFilters);
 $('logout').onclick=async()=>{await api('/auth/v1/logout',{method:'POST'}).catch(()=>{});sessionStorage.removeItem(sessionKey);location.reload();};

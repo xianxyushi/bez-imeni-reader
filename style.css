@@ -21,3 +21,5 @@ html{scrollbar-gutter:stable}body:has(dialog[open]){overflow:hidden}#prose p[id]
 #appendixWidgets{top:auto;bottom:calc(24px + env(safe-area-inset-bottom))}
 
 #prose p{text-align:justify;text-align-last:start;hyphens:auto;-webkit-hyphens:auto}
+html[data-input=pointer] #prose p:focus{outline:none}button,summary,.dialogHead{-webkit-tap-highlight-color:transparent}.dialogHead,button,summary{-webkit-user-select:none;user-select:none}.dialogHead{cursor:grab}dialog[data-closing]{pointer-events:none}
+#reactions button{height:52px;min-width:52px}#reactions svg{width:28px;height:28px;stroke-width:1.7}html[data-input=pointer] :focus{outline:none}
