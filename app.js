@@ -76,8 +76,9 @@ async function start(){
 }
 function rich(block){
  const p=node('p');p.id=block.id;p.tabIndex=0;p.setAttribute('aria-label','Оставить отзыв: '+block.text.slice(0,70));
+ const songLines=[51,52,53,54,59,60,61,62,65,66,68,69];if(songLines.some(n=>block.id==='4-10-5-p'+n)){p.classList.add('songLine');if([54,62,66,69].some(n=>block.id==='4-10-5-p'+n))p.classList.add('songEnd');}
  const cuts=[...new Set([0,block.text.length,...block.spans.flatMap(s=>[s.start,s.end])])].sort((a,b)=>a-b);
- for(let i=0;i<cuts.length-1;i++){const a=cuts[i],z=cuts[i+1],styles=[...new Set(block.spans.filter(s=>s.start<=a&&s.end>=z).map(s=>s.style))];p.append(node('span',block.text.slice(a,z),styles.join(' ')));}
+ for(let i=0;i<cuts.length-1;i++){const a=cuts[i],z=cuts[i+1],styles=[...new Set(block.spans.filter(s=>s.start<=a&&s.end>=z).map(s=>s.style))],span=node('span',undefined,styles.join(' '));appendAccented(span,block.text.slice(a,z));p.append(span);}
  p.onclick=()=>{if(!getSelection()?.toString())openReview(block);};p.onkeydown=e=>{if(e.key==='Enter')openReview(block);};return p;
 }
 function render(blockId){
@@ -94,7 +95,8 @@ function buildToc(){
  $('tocContent').replaceChildren();for(const act of book.acts){const d=node('details');d.append(node('summary',act.title));for(const chapter of act.chapters){const section=node('details',undefined,'chapter');section.append(node('summary','Глава '+chapter.number));const grid=node('div',undefined,'episodeGrid');for(const ep of chapter.episodes){const btn=node('button','Эп. '+ep.number);btn.dataset.episode=ep.id;btn.onclick=()=>{current=episodes.findIndex(e=>e.id===ep.id);$('toc').close();render();};grid.append(btn);}section.append(grid);d.append(section);}$('tocContent').append(d);}
  for(const app of book.appendices){const b=node('button',appendixLabel(app));b.onclick=()=>{$('toc').close();openAppendix(app);};$('tocContent').append(b);}
 }
-function stanza(lines){const p=node('p',undefined,'stanza');for(const word of lines.join('\n').split(/(\s+)/)){if(!word.includes('\u0301')){p.append(document.createTextNode(word));continue;}const w=node('span',undefined,'stressedWord');const chars=Array.from(word);for(let i=0;i<chars.length;i++){if(chars[i+1]==='\u0301'){const letter=node('span',chars[i],'stressedLetter');letter.append(node('span',chars[++i],'sourceAccent'));w.append(letter);}else w.append(document.createTextNode(chars[i]));}p.append(w);}return p;}
+function appendAccented(p,text){for(const word of text.split(/(\s+)/)){if(!word.includes('\u0301')){p.append(document.createTextNode(word));continue;}const w=node('span',undefined,'stressedWord');const chars=Array.from(word);for(let i=0;i<chars.length;i++){if(chars[i+1]==='\u0301'){const letter=node('span',chars[i],'stressedLetter');letter.append(node('span',chars[++i],'sourceAccent'));w.append(letter);}else w.append(document.createTextNode(chars[i]));}p.append(w);}}
+function stanza(lines){const p=node('p',undefined,'stanza');appendAccented(p,lines.join('\n'));return p;}
 function openAppendix(app){$('appendixTitle').textContent=appendixLabel(app);$('appendixText').replaceChildren(...app.stanzas.map(stanza));$('appendix').showModal();}
 function showToc(){const active=$('tocContent').querySelector('[aria-current]');for(let parent=active?.parentElement;parent&&parent!==$('tocContent');parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;$('toc').showModal();active?.scrollIntoView({block:'center'});active?.focus({preventScroll:true});}
 $('tocButton').onclick=showToc;$('home').onclick=e=>{e.preventDefault();if(book)showToc();};$('settingsButton').onclick=()=>$('settings').showModal();

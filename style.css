@@ -23,3 +23,4 @@ html{scrollbar-gutter:stable}body:has(dialog[open]){overflow:hidden}#prose p[id]
 #prose p{text-align:justify;text-align-last:start;hyphens:auto;-webkit-hyphens:auto}
 html[data-input=pointer] #prose p:focus{outline:none}button,summary,.dialogHead{-webkit-tap-highlight-color:transparent}.dialogHead,button,summary{-webkit-user-select:none;user-select:none}.dialogHead{cursor:grab}dialog[data-closing]{pointer-events:none}
 #reactions button{height:52px;min-width:52px}#reactions svg{width:28px;height:28px;stroke-width:1.7}html[data-input=pointer] :focus{outline:none}
+#prose p.songLine{text-align:left;text-align-last:left;hyphens:none;-webkit-hyphens:none;margin-bottom:.12em;line-height:1.6}#prose p.songEnd{margin-bottom:1em}
