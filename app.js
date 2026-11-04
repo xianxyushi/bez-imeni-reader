@@ -2,7 +2,11 @@ import {config} from './config.js';
 import {FeedbackStore,csvCell} from './feedback-store.js';
 const $=id=>document.getElementById(id);
 const sessionKey='bez-imeni-session';
-let session=JSON.parse(sessionStorage.getItem(sessionKey)||'null'),book,episodes=[],current=0,profile,reviewRecord,target,allReviews=[],refreshing;
+function storedSession(){try{return JSON.parse(localStorage.getItem(sessionKey)||sessionStorage.getItem(sessionKey)||'null');}catch{return null;}}
+let session=storedSession(),book,episodes=[],current=0,profile,reviewRecord,target,allReviews=[],refreshing;
+if(session){localStorage.setItem(sessionKey,JSON.stringify(session));sessionStorage.removeItem(sessionKey);}
+function clearSession(){session=null;localStorage.removeItem(sessionKey);sessionStorage.removeItem(sessionKey);}
+window.addEventListener('storage',e=>{if(e.key!==sessionKey)return;const next=storedSession();if(next?.user?.id!==session?.user?.id){location.reload();return;}session=next;});
 function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
 function appendixLabel(app){return 'Приложение '+(book.appendices.indexOf(app)+1);}
 const iconPaths={list:'M4 6h16M4 12h16M4 18h10',type:'M4 5h16M12 5v15M8 20h8',message:'M20 15a3 3 0 0 1-3 3H8l-5 3V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z',people:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M16 4a4 4 0 0 1 0 8M22 21v-2a4 4 0 0 0-3-3.87M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0',exit:'M9 3H4v18h5M14 8l5 4-5 4M8 12h11',book:'M12 5v16M3 3h5a4 4 0 0 1 4 2 4 4 0 0 1 4-2h5v16h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3z',close:'M6 6l12 12M6 18L18 6'};
@@ -23,15 +27,16 @@ async function api(path,{method='GET',body,auth=true,retry=true,headers={}}={}){
  if(auth&&session?.expires_at<Date.now()+30000)await refresh();
  const res=await fetch(config.url+path,{method,headers:{apikey:config.anonKey,'Content-Type':'application/json',...headers,...(auth?{Authorization:'Bearer '+session?.access_token}:{})},body:body===undefined?undefined:JSON.stringify(body)});
  const data=await res.json().catch(()=>null);
- if(res.status===401&&auth&&retry){await refresh();return api(path,{method,body,auth,retry:false,headers});}
+ if(res.status===401&&auth&&retry){await refresh(true);return api(path,{method,body,auth,retry:false,headers});}
  if(!res.ok){const error=Error(data?.message||data?.error_description||'Не удалось связаться с сервером. Черновик сохранён на этом устройстве.');error.code=data?.code;throw error;}
  return data;
 }
-async function refresh(){
- if(!refreshing)refreshing=(async()=>{if(!session?.refresh_token)throw Error('Войди снова, чтобы продолжить.');const data=await api('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:session.refresh_token},auth:false});setSession(data);})().finally(()=>refreshing=null);
+async function refresh(force=false){
+ const refreshOnce=async()=>{const latest=storedSession();if(latest?.user?.id!==session?.user?.id||!latest?.refresh_token)throw Error('Войди снова, чтобы продолжить.');session=latest;if(!force&&session.expires_at>Date.now()+30000)return;const token=session.refresh_token;const data=await api('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:token},auth:false});if(storedSession()?.refresh_token!==token)throw Error('Сеанс изменился. Обнови страницу.');setSession(data);};
+ if(!refreshing)refreshing=(navigator.locks?navigator.locks.request('bez-imeni-refresh',refreshOnce):refreshOnce()).finally(()=>refreshing=null);
  return refreshing;
 }
-function setSession(data){session={...data,expires_at:Date.now()+data.expires_in*1000};sessionStorage.setItem(sessionKey,JSON.stringify(session));}
+function setSession(data){session={...data,expires_at:Date.now()+data.expires_in*1000};localStorage.setItem(sessionKey,JSON.stringify(session));sessionStorage.removeItem(sessionKey);}
 function rpc(name,body={}){return api('/rest/v1/rpc/'+name,{method:'POST',body});}
 function positionKey(){return 'bez-imeni-position:'+session.user.id+':'+book.edition;}
 let positionQueue=Promise.resolve();
@@ -64,7 +69,7 @@ document.querySelectorAll('dialog').forEach(d=>{
  head.addEventListener('pointerup',e=>{if(startPoint?.id===e.pointerId&&e.clientY-startPoint.y>70&&Math.abs(e.clientX-startPoint.x)<60){startPoint=null;dismissDialog(d);}else resetDrag();});head.addEventListener('pointercancel',resetDrag);
 });
 const authorFilters=node('div',undefined,'authorFilters'),filterPanel=node('details',undefined,'filterPanel'),filterSummary=node('summary','Фильтры'),filterFields=node('div',undefined,'filterFields');filterSummary.id='filterSummary';filterFields.append($('readerFilter').closest('label'));for(const [id,title] of [['actFilter','Акт'],['chapterFilter','Глава'],['episodeFilter','Эпизод']]){const label=node('label',title),select=node('select');select.id=id;select.append(new Option('Все',''));label.append(select);filterFields.append(label);}const resetFilters=node('button','Сбросить');resetFilters.id='resetFilters';filterFields.append(resetFilters);filterPanel.append(filterSummary,filterFields);authorFilters.append(filterPanel,$('export'));$('author').querySelector('.dialogHead').after(authorFilters);
-$('logout').onclick=async()=>{await api('/auth/v1/logout',{method:'POST'}).catch(()=>{});sessionStorage.removeItem(sessionKey);location.reload();};
+$('logout').onclick=async()=>{await api('/auth/v1/logout',{method:'POST'}).catch(()=>{});clearSession();location.reload();};
 async function start(){
  profile=(await rpc('reader_profile'))[0];if(!profile)throw Error('Доступ закрыт. Обратись к автору книги.');
  const editions=await api('/rest/v1/reader_editions?select=contents&order=created_at.desc&limit=1');if(!editions.length)throw Error('Автор ещё готовит текст книги.');book=editions[0].contents;
@@ -149,7 +154,7 @@ async function acceptInvitation(){
  const key=hash.get('key');history.replaceState(null,'',location.pathname+location.search);
  document.querySelectorAll('dialog[open]').forEach(d=>d.close());
  $('reader').hidden=true;$('tools').hidden=true;$('login').hidden=false;book=null;
- session=null;sessionStorage.removeItem(sessionKey);showStatus('loginStatus','Открываем книгу…');
+ clearSession();showStatus('loginStatus','Открываем книгу…');
  setSession(await api('/functions/v1/reader-access',{method:'POST',auth:false,body:{action:'enter',key}}));
  await start();return true;
 }
