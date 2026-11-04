@@ -4,6 +4,7 @@ const $=id=>document.getElementById(id);
 const sessionKey='bez-imeni-session';
 let session=JSON.parse(sessionStorage.getItem(sessionKey)||'null'),book,episodes=[],current=0,profile,reviewRecord,target,allReviews=[],refreshing;
 function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
+function appendixLabel(app){return 'Приложение '+(book.appendices.indexOf(app)+1);}
 async function api(path,{method='GET',body,auth=true,retry=true,headers={}}={}){
  if(!config.url||!config.anonKey)throw Error('Читалка ещё не подключена. Автор готовит доступ.');
  if(auth&&session?.expires_at<Date.now()+30000)await refresh();
@@ -33,6 +34,7 @@ function rememberPosition(episode,block=''){
 function draftsKey(){return 'bez-imeni-draft:'+session.user.id+':'+book.edition+':'+target.episode+':'+target.block;}
 function showStatus(id,text){$(id).textContent=text;}
 document.querySelectorAll('dialog .close').forEach(b=>b.onclick=()=>b.closest('dialog').close());
+document.querySelectorAll('dialog').forEach(d=>{const heading=d.querySelector('h2');if(!heading.id)heading.id=d.id+'Heading';d.setAttribute('aria-labelledby',heading.id);});
 $('logout').onclick=async()=>{await api('/auth/v1/logout',{method:'POST'}).catch(()=>{});sessionStorage.removeItem(sessionKey);location.reload();};
 async function start(){
  profile=(await rpc('reader_profile'))[0];if(!profile)throw Error('Доступ закрыт. Обратись к автору книги.');
@@ -51,18 +53,20 @@ function rich(block){
 }
 function render(blockId){
  const ep=episodes[current];$('location').textContent=`Акт ${ep.act} · ${ep.actTitle} · Глава ${ep.chapter}`;$('title').textContent='Эп. '+ep.number;$('prose').replaceChildren(...ep.blocks.map(rich));
- for(const app of book.appendices.filter(a=>a.links.includes(ep.id))){const button=node('button',app.title.split('. ').slice(1).join('. ')+' — полный текст');button.onclick=()=>openAppendix(app);$('prose').append(button);}
+ for(const app of book.appendices.filter(a=>a.links.includes(ep.id))){const button=node('button',appendixLabel(app),'appendixLink');button.onclick=()=>openAppendix(app);$('prose').append(button);}
  $('previous').disabled=current===0;$('next').disabled=current===episodes.length-1;rememberPosition(ep.id,blockId||'');
+ document.querySelectorAll('#tocContent button[data-episode]').forEach(b=>{if(b.dataset.episode===ep.id)b.setAttribute('aria-current','location');else b.removeAttribute('aria-current');});
  window.scrollTo(0,0);if(blockId)$(blockId)?.scrollIntoView({block:'center'});
 }
 $('previous').onclick=()=>{if(current>0){current--;render();}};$('next').onclick=()=>{if(current<episodes.length-1){current++;render();}};
 $('home').onclick=e=>{e.preventDefault();if(book)$('toc').showModal();};
 function buildToc(){
- $('tocContent').replaceChildren();for(const act of book.acts){const d=node('details');d.append(node('summary',act.title));for(const chapter of act.chapters){d.append(node('h3','Глава '+chapter.number));for(const ep of chapter.episodes){const btn=node('button','Эп. '+ep.number);btn.onclick=()=>{current=episodes.findIndex(e=>e.id===ep.id);$('toc').close();render();};d.append(btn);}}$('tocContent').append(d);}
- for(const app of book.appendices){const b=node('button',app.title);b.onclick=()=>{$('toc').close();openAppendix(app);};$('tocContent').append(b);}
+ $('tocContent').replaceChildren();for(const act of book.acts){const d=node('details');d.append(node('summary',act.title));for(const chapter of act.chapters){d.append(node('h3','Глава '+chapter.number));for(const ep of chapter.episodes){const btn=node('button','Эп. '+ep.number);btn.dataset.episode=ep.id;btn.onclick=()=>{current=episodes.findIndex(e=>e.id===ep.id);$('toc').close();render();};d.append(btn);}}$('tocContent').append(d);}
+ for(const app of book.appendices){const b=node('button',appendixLabel(app));b.onclick=()=>{$('toc').close();openAppendix(app);};$('tocContent').append(b);}
 }
-function openAppendix(app){$('appendixTitle').textContent=app.title;$('appendixText').replaceChildren(...app.stanzas.map(s=>node('p',s.join('\n'),'stanza')));$('appendix').showModal();}
-$('tocButton').onclick=()=>$('toc').showModal();$('settingsButton').onclick=()=>$('settings').showModal();
+function openAppendix(app){$('appendixTitle').textContent=appendixLabel(app);$('appendixText').replaceChildren(...app.stanzas.map(s=>node('p',s.join('\n'),'stanza')));$('appendix').showModal();}
+function showToc(){const active=$('tocContent').querySelector('[aria-current]');if(active)active.closest('details').open=true;$('toc').showModal();active?.scrollIntoView({block:'center'});active?.focus({preventScroll:true});}
+$('tocButton').onclick=showToc;$('home').onclick=e=>{e.preventDefault();if(book)showToc();};$('settingsButton').onclick=()=>$('settings').showModal();
 const prefs=JSON.parse(localStorage.getItem('bez-imeni-settings')||'{}');$('fontSize').value=prefs.size||21;$('theme').value=prefs.theme||'light';
 function settings(){document.documentElement.style.setProperty('--size',$('fontSize').value+'px');document.body.dataset.theme=$('theme').value;localStorage.setItem('bez-imeni-settings',JSON.stringify({size:$('fontSize').value,theme:$('theme').value}));}
 $('fontSize').oninput=settings;$('theme').onchange=settings;settings();
@@ -104,9 +108,16 @@ function showInvite(result){$('inviteLink').value=result.link;$('inviteResult').
 $('invites').addEventListener('close',clearInvite);
 $('copyInvite').onclick=async()=>{try{await navigator.clipboard.writeText($('inviteLink').value);showStatus('inviteStatus','Ссылка скопирована.');}catch{$('inviteLink').select();showStatus('inviteStatus','Скопируй выделенную ссылку.');}};
 async function accessAction(body){return api('/functions/v1/reader-access',{method:'POST',body});}
+$('inspectForm').onsubmit=async event=>{
+ event.preventDefault();if(!profile.author)return;const button=event.submitter;button.disabled=true;$('inspectResult').textContent='Проверяем…';
+ try{const result=await accessAction({action:'inspect',query:$('inspectQuery').value});$('inspectResult').replaceChildren(node('p',result.message),...result.people.map(p=>node('p',p.name+' · '+(p.active?'Доступ открыт':'Доступ закрыт')+(p.author?' · Автор':''))));}
+ catch(e){$('inspectResult').textContent=e.message;}finally{button.disabled=false;}
+};
+$('invites').addEventListener('close',()=>{$('inspectForm').reset();$('inspectResult').replaceChildren();});
 async function loadInvites(){
  const rows=await api('/rest/v1/reader_people?select=user_id,name,active,author&order=created_at.desc');
- $('inviteList').replaceChildren(...rows.filter(r=>!r.author).map(r=>{
+ const testAccounts=new Set(['97975075-dc4a-4042-915a-eb289657a713','14fbfca1-b113-462e-8332-d1841ddd8a95']);
+ $('inviteList').replaceChildren(...rows.filter(r=>!r.author&&!testAccounts.has(r.user_id)).map(r=>{
   const card=node('section',undefined,'reviewCard'),button=node('button',r.active?'Закрыть доступ':'Вернуть доступ'),rotate=node('button','Новая личная ссылка');
   card.append(node('strong',r.name),node('p',r.active?'Доступ открыт':'Доступ закрыт'),button,rotate,node('p','Новая ссылка заменит старую. Чтобы закрыть уже открытые сеансы, отключи доступ.','muted'));
   button.onclick=async()=>{button.disabled=true;clearInvite();try{const result=await accessAction({action:'active',userId:r.user_id,active:!r.active});await loadInvites();showStatus('inviteStatus',result.message);}catch(e){showStatus('inviteStatus',e.message);button.disabled=false;}};
@@ -121,4 +132,5 @@ $('inviteForm').onsubmit=async event=>{
  catch(e){showStatus('inviteStatus',e.message);}finally{button.disabled=false;await loadInvites().catch(()=>{});}
 };
 acceptInvitation().then(handled=>{if(!handled&&session)return start();}).catch(e=>showStatus('loginStatus',e.message));
-window.addEventListener('hashchange',()=>{if(new URLSearchParams(location.hash.slice(1)).has('key'))acceptInvitation().catch(e=>showStatus('loginStatus',e.message));});
+// Новый ключ открывает чистый контекст: ответы прежнего аккаунта не меняют новый интерфейс.
+window.addEventListener('hashchange',()=>{if(new URLSearchParams(location.hash.slice(1)).has('key'))location.reload();});
