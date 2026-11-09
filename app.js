@@ -1,5 +1,6 @@
 import {config} from './config.js';
 import {FeedbackStore,csvCell} from './feedback-store.js';
+import {imageDrafts,imageFields,imageLimit,imageSource,prepareImage} from './review-images.js';
 const $=id=>document.getElementById(id);
 const sessionKey='bez-imeni-session';
 function storedSession(){try{return JSON.parse(localStorage.getItem(sessionKey)||sessionStorage.getItem(sessionKey)||'null');}catch{return null;}}
@@ -110,25 +111,168 @@ const sizeValue=node('output',undefined,'sizeValue');sizeValue.htmlFor='fontSize
 function settings(){document.documentElement.style.setProperty('--size',$('fontSize').value+'px');document.body.dataset.theme=$('theme').value;sizeValue.textContent=$('fontSize').value;themeChoices.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.themeChoice===$('theme').value));localStorage.setItem('bez-imeni-settings',JSON.stringify({size:$('fontSize').value,theme:$('theme').value}));}
 $('fontSize').oninput=settings;$('theme').onchange=settings;settings();
 let reaction=null,loadingReview=0,reviewLoaded=false;
-const feedbackStore=new FeedbackStore({send:payload=>rpc('reader_save_feedback',payload),storage:localStorage});
+const feedbackStore=new FeedbackStore({
+ send:payload=>rpc(payload.p_images?'reader_save_feedback_with_images':'reader_save_feedback',payload),
+ storage:localStorage,pendingStorage:imageDrafts
+});
+let reviewImages=[], imagesChanged=false, imageBusy=false, imagesReady=false;
+const imageViewer=$('reviewImageViewer');
+imageViewer.addEventListener('close',()=>$('reviewImageFull').removeAttribute('src'));
+function imagePreview(image,index){
+ const button=node('button',undefined,'reviewImageThumb');
+ button.type='button';
+ button.setAttribute('aria-label','Открыть изображение '+(index+1));
+ const img=node('img');
+ img.alt='';
+ img.src=imageSource(image);
+ button.append(img);
+ button.onclick=()=>{$('reviewImageFull').src=img.src;imageViewer.showModal();};
+ return button;
+}
+function renderReviewImages(){
+ const locked=imageBusy||!imagesReady||!reviewLoaded||feedbackStore.running.has(draftsKey());
+ $('addReviewImage').disabled=locked||reviewImages.length>=imageLimit;
+ $('reviewImages').replaceChildren(...reviewImages.map((image,index)=>{
+  const item=node('div',undefined,'reviewImageItem'),remove=node('button','×','reviewImageRemove');
+  remove.type='button';
+  remove.setAttribute('aria-label','Убрать изображение '+(index+1));
+  remove.disabled=locked;
+  remove.onclick=()=>changeReviewImages(reviewImages.filter(other=>other.id!==image.id));
+  item.append(imagePreview(image,index),remove);
+  return item;
+ }));
+}
+async function changeReviewImages(next){
+ const generation=loadingReview,key=draftsKey();
+ imageBusy=true;renderReviewImages();$('saveReview').disabled=true;
+ try{
+  await imageDrafts.write(key,next);
+  if(generation===loadingReview){reviewImages=next;imagesChanged=true;showStatus('imageStatus','');}
+ }catch{if(generation===loadingReview)showStatus('imageStatus','Не удалось сохранить изображения в черновике.');}
+ finally{if(generation===loadingReview){imageBusy=false;renderReviewImages();$('saveReview').disabled=!reviewLoaded;}}
+}
+$('addReviewImage').onclick=()=>$('reviewImageInput').click();
+$('reviewImageInput').onchange=async event=>{
+ const files=[...event.target.files];event.target.value='';
+ if(!files.length||imageBusy||!imagesReady||$('addReviewImage').disabled)return;
+ const generation=loadingReview;
+ if(reviewImages.length+files.length>imageLimit){showStatus('imageStatus','Можно добавить до трёх изображений.');return;}
+ imageBusy=true;renderReviewImages();$('saveReview').disabled=true;
+ showStatus('imageStatus','Подготавливаем изображения…');
+ try{
+  const prepared=[];
+  for(const file of files)prepared.push(await prepareImage(file));
+  if(generation===loadingReview)await changeReviewImages([...reviewImages,...prepared]);
+ }catch(error){if(generation===loadingReview)showStatus('imageStatus',error.message||'Не удалось открыть изображение.');}
+ finally{if(generation===loadingReview){imageBusy=false;renderReviewImages();$('saveReview').disabled=!reviewLoaded;}}
+};
 function renderReaction(){document.querySelectorAll('[data-reaction]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.reaction===reaction));}
 function keepDraft(){if(!target)return;localStorage.setItem(draftsKey(),JSON.stringify({comment:$('comment').value,reaction}));}
 document.querySelectorAll('[data-reaction]').forEach(b=>b.onclick=()=>{if(!reviewLoaded)return;reaction=reaction===b.dataset.reaction?null:b.dataset.reaction;renderReaction();keepDraft();});$('comment').oninput=keepDraft;
 $('episodeReview').onclick=()=>openReview();
 async function openReview(block){
  const generation=++loadingReview;reviewLoaded=false;target={episode:episodes[current].id,block:block?.id||'',quote:block?.text||''};reviewRecord=null;reaction=null;$('comment').value='';$('quote').textContent=target.quote;$('saveReview').disabled=true;$('comment').disabled=true;showStatus('saveStatus','Загружаем отзыв…');renderReaction();$('review').showModal();
- try{const pending=feedbackStore.running.get(draftsKey());if(pending)await pending.catch(()=>{});if(generation!==loadingReview)return;const query=new URLSearchParams({select:'*',user_id:'eq.'+session.user.id,edition:'eq.'+book.edition,episode:'eq.'+target.episode,block:'eq.'+target.block});const rows=await api('/rest/v1/reader_feedback?'+query);if(generation!==loadingReview)return;reviewRecord=rows[0]||null;const draft=JSON.parse(localStorage.getItem(draftsKey())||'null');$('comment').value=draft?.comment??reviewRecord?.comment??'';reaction=draft?draft.reaction:reviewRecord?.reaction||null;renderReaction();reviewLoaded=true;$('comment').disabled=false;$('saveReview').disabled=feedbackStore.running.has(draftsKey());showStatus('saveStatus',draft?'Есть несохранённый черновик.':'');}catch(e){if(generation===loadingReview)showStatus('saveStatus',e.message);}
+ const key=draftsKey();
+ reviewImages=[];imagesChanged=false;imageBusy=false;imagesReady=false;
+ $('reviewAttachments').hidden=!target.block;
+ showStatus('imageStatus','');renderReviewImages();
+ try{
+  const pending=feedbackStore.running.get(key);if(pending)await pending.catch(()=>{});
+  if(generation!==loadingReview)return;
+  const query=new URLSearchParams({select:'*',user_id:'eq.'+session.user.id,edition:'eq.'+book.edition,episode:'eq.'+target.episode,block:'eq.'+target.block});
+  const rows=await api('/rest/v1/reader_feedback?'+query);
+  if(generation!==loadingReview)return;
+  reviewRecord=rows[0]||null;
+  const draft=JSON.parse(localStorage.getItem(key)||'null');
+  $('comment').value=draft?.comment??reviewRecord?.comment??'';
+  reaction=draft?draft.reaction:reviewRecord?.reaction||null;
+  if(target.block){
+   try{
+    const [local,remote]=await Promise.all([
+     imageDrafts.read(key),
+     reviewRecord?rpc('reader_feedback_images',{p_feedback_id:reviewRecord.id}):[]
+    ]);
+    if(generation!==loadingReview)return;
+    const savedIds=new Set(remote.map(image=>image.id));
+    reviewImages=local?local.map(image=>({...image,saved:savedIds.has(image.id)})):remote.map(image=>({...image,saved:true}));
+    imagesChanged=Boolean(local);imagesReady=true;
+   }catch{if(generation!==loadingReview)return;showStatus('imageStatus','Изображения недоступны. Открой отзыв заново, чтобы повторить.');}
+  }
+  renderReaction();reviewLoaded=true;renderReviewImages();$('comment').disabled=false;
+  $('saveReview').disabled=feedbackStore.running.has(key);
+  showStatus('saveStatus',draft||imagesChanged?'Есть несохранённый черновик.':'');
+ }catch(e){if(generation===loadingReview)showStatus('saveStatus',e.message);}
 }
 $('saveReview').onclick=async()=>{
- if(!reviewLoaded||feedbackStore.running.has(draftsKey()))return;
+ if(!reviewLoaded||imageBusy||feedbackStore.running.has(draftsKey()))return;
  $('saveReview').disabled=true;keepDraft();showStatus('saveStatus','Сохраняем…');
  const key=draftsKey(),generation=loadingReview,payload={p_edition:book.edition,p_episode:target.episode,p_block:target.block,p_quote:target.quote,p_reaction:reaction,p_comment:$('comment').value};
- try{const result=await feedbackStore.save(key,payload,reviewRecord?.revision||0);const latest=JSON.parse(localStorage.getItem(key)||'null');const unchanged=latest?.comment===payload.p_comment&&latest?.reaction===payload.p_reaction;if(unchanged)localStorage.removeItem(key);if(generation===loadingReview){reviewRecord=result;showStatus('saveStatus',unchanged?'Сохранено':'Предыдущая версия сохранена. Новые изменения пока в черновике.');}}
+ if(imagesChanged)payload.p_images=imageFields(reviewImages);
+ const saving=feedbackStore.save(key,payload,reviewRecord?.revision||0);
+ renderReviewImages();
+ try{
+  const result=await saving;
+  if(payload.p_images)await imageDrafts.remove(key);
+  const latest=JSON.parse(localStorage.getItem(key)||'null');
+  const unchanged=latest?.comment===payload.p_comment&&latest?.reaction===payload.p_reaction;
+  if(unchanged)localStorage.removeItem(key);
+  if(generation===loadingReview){
+   reviewRecord=result;
+   if(payload.p_images){reviewImages=reviewImages.map(image=>({...image,saved:true}));imagesChanged=false;}
+   showStatus('saveStatus',unchanged?'Сохранено':'Предыдущая версия сохранена. Новые изменения пока в черновике.');
+  }
+ }
  catch(e){if(generation===loadingReview)showStatus('saveStatus',e.message);}
- finally{if(key===draftsKey())$('saveReview').disabled=!reviewLoaded;}
+ finally{if(generation===loadingReview){$('saveReview').disabled=!reviewLoaded;renderReviewImages();}}
 };
-$('authorButton').onclick=async()=>{if(!profile.author)return;$('author').showModal();$('allReviews').textContent='Загружаем…';try{allReviews=await rpc('reader_all_feedback');const users=new Map(allReviews.map(r=>[r.user_id,r.name]));$('readerFilter').replaceChildren(new Option('Все',''),...[...users].map(([id,name])=>new Option(name,id)));initReviewFilters();renderAll();}catch(e){$('allReviews').textContent=e.message;}};
-function renderAll(){const rows=filteredReviews();$('filterSummary').textContent='Фильтры · '+rows.length+' из '+allReviews.length;$('allReviews').replaceChildren(...rows.map(r=>{const box=node('section',undefined,'reviewCard'),label=node('div',undefined,'identity'),dot=node('i');if(/^#[0-9a-f]{6}$/i.test(r.color))dot.style.background=r.color;label.append(dot,node('strong',r.name));const ep=episodes.find(e=>e.id===r.episode);box.append(label,node('p',(ep?`Акт ${ep.act} · Глава ${ep.chapter} · Эп. ${ep.number}`:r.episode)+' · '+({heart:'Нравится',broken:'Не нравится',remark:'Замечание'}[r.reaction]||'Комментарий'),'reviewAddress'));if(r.quote){const q=node('details',undefined,'reviewQuote');q.append(node('summary','Показать фрагмент'),node('blockquote',r.quote));box.append(q);}if(r.comment)box.append(node('p',r.comment));if(ep){const jump=node('button','К фрагменту');jump.onclick=()=>{$('author').close();current=episodes.indexOf(ep);render(r.block);};box.append(jump);}return box;}));if(!rows.length)$('allReviews').textContent=allReviews.length?'По этим фильтрам отзывов нет.':'Отзывов пока нет.';}
+$('authorButton').onclick=async()=>{if(!profile.author)return;$('author').showModal();$('allReviews').textContent='Загружаем…';try{allReviews=await rpc('reader_all_feedback_with_images');const users=new Map(allReviews.map(r=>[r.user_id,r.name]));$('readerFilter').replaceChildren(new Option('Все',''),...[...users].map(([id,name])=>new Option(name,id)));initReviewFilters();renderAll();}catch(e){$('allReviews').textContent=e.message;}};
+let reviewImageObserver;
+$('author').addEventListener('close',()=>{
+ reviewImageObserver?.disconnect();
+ $('allReviews').replaceChildren();
+});
+async function loadAuthorImages(gallery){
+ if(!gallery.isConnected)return;
+ gallery.textContent='Загружаем изображения…';
+ try{
+  const images=await rpc('reader_feedback_images',{p_feedback_id:gallery.dataset.feedbackId});
+  if(gallery.isConnected)gallery.replaceChildren(...images.map(imagePreview));
+ }catch{
+  if(!gallery.isConnected)return;
+  const retry=node('button','Повторить загрузку изображений');
+  retry.onclick=()=>loadAuthorImages(gallery);
+  gallery.replaceChildren(retry);
+ }
+}
+function renderAll(){
+ reviewImageObserver?.disconnect();
+ reviewImageObserver=new IntersectionObserver(entries=>{
+  for(const entry of entries){
+   if(!entry.isIntersecting)continue;
+   reviewImageObserver.unobserve(entry.target);
+   loadAuthorImages(entry.target);
+  }
+ },{root:$('author')});
+ const rows=filteredReviews();
+ $('filterSummary').textContent='Фильтры · '+rows.length+' из '+allReviews.length;
+ $('allReviews').replaceChildren(...rows.map(r=>{
+  const box=node('section',undefined,'reviewCard'),label=node('div',undefined,'identity'),dot=node('i');
+  if(/^#[0-9a-f]{6}$/i.test(r.color))dot.style.background=r.color;
+  label.append(dot,node('strong',r.name));
+  const ep=episodes.find(e=>e.id===r.episode);
+  box.append(label,node('p',(ep?`Акт ${ep.act} · Глава ${ep.chapter} · Эп. ${ep.number}`:r.episode)+' · '+({heart:'Нравится',broken:'Не нравится',remark:'Замечание'}[r.reaction]||'Комментарий'),'reviewAddress'));
+  if(r.quote){const q=node('details',undefined,'reviewQuote');q.append(node('summary','Показать фрагмент'),node('blockquote',r.quote));box.append(q);}
+  if(r.comment)box.append(node('p',r.comment));
+  if(r.image_count>0){
+   const gallery=node('div','Изображений: '+r.image_count,'reviewImages');
+   gallery.dataset.feedbackId=r.id;
+   box.append(gallery);reviewImageObserver.observe(gallery);
+  }
+  if(ep){const jump=node('button','К фрагменту');jump.onclick=()=>{$('author').close();current=episodes.indexOf(ep);render(r.block);};box.append(jump);}
+  return box;
+ }));
+ if(!rows.length)$('allReviews').textContent=allReviews.length?'По этим фильтрам отзывов нет.':'Отзывов пока нет.';
+}
 $('readerFilter').onchange=renderAll;
 function initReviewFilters(){const chosen=$('actFilter').value;$('actFilter').replaceChildren(new Option('Все',''),...book.acts.map(a=>new Option(a.number+' · '+a.title,String(a.number))));$('actFilter').value=chosen;updateChapterFilters();}
 function updateChapterFilters(){const a=book.acts.find(a=>String(a.number)===$('actFilter').value);$('chapterFilter').replaceChildren(new Option('Все',''),...(a?.chapters||[]).map(c=>new Option('Глава '+c.number,String(c.number))));$('chapterFilter').disabled=!a;updateEpisodeFilters();}

@@ -25,3 +25,19 @@ html[data-input=pointer] #prose p:focus{outline:none}button,summary,.dialogHead{
 #reactions button{height:52px;min-width:52px}#reactions svg{width:28px;height:28px;stroke-width:1.7}html[data-input=pointer] :focus{outline:none}
 #prose p.songLine{text-align:left;text-align-last:left;hyphens:none;-webkit-hyphens:none;margin-bottom:.12em;line-height:1.6}#prose p.songEnd{margin-bottom:1em}
 #showLinkLogin{align-self:center;margin-top:24px;background:transparent;color:var(--muted);text-decoration:underline;text-underline-offset:4px}#linkLoginForm{width:100%;max-width:420px;align-self:center;margin-top:16px;text-align:left}#linkLoginForm label{margin:0}#linkLoginForm button{margin-top:14px;width:100%;background:var(--ink);color:var(--bg)}#login #loginStatus:not(:empty){margin-top:18px}
+
+/* Вложения и просмотр на весь экран */
+#reviewAttachments{margin:0 0 16px}
+#reviewImageInput[hidden]{display:none}
+#imageStatus{font-size:14px;margin:6px 0 0}
+#imageStatus:empty{display:none}
+.reviewImages{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.reviewImageItem{position:relative}
+button.reviewImageThumb,.reviewCard button.reviewImageThumb{width:82px;height:82px;min-width:0;padding:0;margin:0;overflow:hidden;border:1px solid var(--line);border-radius:10px}
+.reviewImageThumb img{display:block;width:100%;height:100%;object-fit:cover}
+.reviewImageRemove{position:absolute;top:0;right:0;min-width:36px;min-height:36px;padding:0;background:var(--panel);color:var(--ink)}
+#reviewImageViewer{inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;border-radius:0;background:#18191d;color:#fff;overscroll-behavior:contain}
+#reviewImageViewer[open]{display:flex;flex-direction:column}
+#reviewImageViewer .dialogHead{flex:none;margin:0;padding:12px max(16px,env(safe-area-inset-right)) 12px max(16px,env(safe-area-inset-left));background:#18191d;color:#fff;border-color:#fff3}
+#reviewImageViewer .close{color:inherit}
+#reviewImageFull{display:block;flex:1;min-height:0;width:100%;object-fit:contain;padding:8px 8px max(8px,env(safe-area-inset-bottom))}
